@@ -36,14 +36,21 @@ try:
         image_translation_pre_align,
         descan_gain,
         image_rotation_pre_align,
-        image_rotation,
-        image_translation,
-        dark_offset_correction,
-        digital_gain_correction,
-        scan_rotation,
-        scan_amplitude,
-        cell_translation,
+        # image_rotation,
+        # image_translation,
+        # dark_offset_correction,
+        # digital_gain_correction,
+        # scan_rotation,
+        # scan_amplitude,
+        # cell_translation,
     )
+    image_rotation = None
+    image_translation = None
+    dark_offset_correction = None
+    digital_gain_correction = None
+    scan_rotation = None
+    scan_amplitude = None
+    cell_translation = None
     from fastem_calibrations.configure_hw import (
         get_config_asm,
         configure_asm

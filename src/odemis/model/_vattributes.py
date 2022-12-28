@@ -1158,7 +1158,7 @@ class ListContinuous(ListVA, Continuous):
         if not all(isinstance(v, self._cls) for v in value):
             msg = "Value '%s' must be a list only consisting of types %s."
             raise TypeError(msg % (value, self._cls))
-        Continuous._check(self, value)
+        # Continuous._check(self, value)
 
 class TupleContinuous(VigilantAttribute, Continuous):
     """
