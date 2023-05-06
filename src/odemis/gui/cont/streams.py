@@ -1382,6 +1382,14 @@ class StreamController(object):
         btn_autobc.Bind(wx.EVT_BUTTON, self._on_btn_autobc)
         # btn_autostigmation.Bind(wx.EVT_BUTTON, self._on_btn_autostigmation)
 
+        self.stream_panel.add_divider()
+        btn_immersion_mode = self.stream_panel.add_immersion_mode_button()
+
+        # Store a setting entry for the immersion mode button
+        se = SettingEntry(name="immersion_mode", va=self.stream.emitter.immersion, stream=self.stream,
+                          value_ctrl=btn_immersion_mode, events=wx.EVT_BUTTON)
+        self.entries.append(se)
+
     @call_in_wx_main
     def _on_btn_autofocus(self, _):
         self.stream_panel.Enable(False)
