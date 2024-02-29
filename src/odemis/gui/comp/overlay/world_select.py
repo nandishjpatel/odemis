@@ -22,6 +22,7 @@ This file is part of Odemis.
 
 """
 
+import logging
 import cairo
 import odemis.gui as gui
 import odemis.util.units as units
@@ -147,10 +148,25 @@ class WorldSelectOverlay(WorldOverlay, SelectionMixin):
                     b_end_pos.x - b_start_pos.x,
                     b_end_pos.y - b_start_pos.y)
 
+            # center_x = (b_start_pos.x + b_end_pos.x) / 2
+            # center_y = (b_start_pos.y + b_end_pos.y) / 2
+            # self.center = Vec(center_x, center_y)
+            # logging.error(f"Center world select: {self.center}")
+            left_top = self.rotate_pos(b_start_pos)
+            right_top = self.rotate_pos(Vec(b_end_pos.x, b_start_pos.y))
+            right_bottom = self.rotate_pos(b_end_pos)
+            left_bottom = self.rotate_pos(Vec(b_start_pos.x, b_end_pos.y))
             # draws a light black background for the rectangle
             ctx.set_line_width(line_width)
             ctx.set_source_rgba(0, 0, 0, 0.5)
-            ctx.rectangle(*rect)
+            ctx.move_to(*left_top)
+            ctx.line_to(*right_top)
+            ctx.line_to(*right_bottom)
+            ctx.line_to(*left_bottom)
+            ctx.close_path()
+            # ctx.translate(*self.center)
+            # ctx.rotate(45)
+            # ctx.rectangle(*rect)
             ctx.stroke()
 
             # draws the dotted line
@@ -159,10 +175,17 @@ class WorldSelectOverlay(WorldOverlay, SelectionMixin):
                 ctx.set_dash([2])
             ctx.set_line_join(cairo.LINE_JOIN_MITER)
             ctx.set_source_rgba(*self.colour)
-            ctx.rectangle(*rect)
+            ctx.move_to(*left_top)
+            ctx.line_to(*right_top)
+            ctx.line_to(*right_bottom)
+            ctx.line_to(*left_bottom)
+            ctx.close_path()
+            # ctx.translate(center_x, center_y)
+            # ctx.rotate(45)
+            # ctx.rectangle(*rect)
             ctx.stroke()
 
-            self._debug_draw_edges(ctx, True)
+            # self._debug_draw_edges(ctx, True)
 
             # Label
             if (self.selection_mode in (SEL_MODE_EDIT, SEL_MODE_CREATE) and
@@ -222,6 +245,8 @@ class WorldSelectOverlay(WorldOverlay, SelectionMixin):
                     self.cnvs.set_dynamic_cursor(wx.CURSOR_SIZEWE)
                 elif self.hover in (gui.HOVER_TOP_EDGE, gui.HOVER_BOTTOM_EDGE):
                     self.cnvs.set_dynamic_cursor(wx.CURSOR_SIZENS)
+                elif self.hover == gui.HOVER_ROTATION:
+                    self.cnvs.set_dynamic_cursor(wx.CURSOR_MAGNIFIER)
                 elif self.hover:
                     self.cnvs.set_dynamic_cursor(wx.CURSOR_SIZING)
                 else:

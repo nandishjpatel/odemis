@@ -20,6 +20,7 @@ This file is part of Odemis.
 
 """
 from abc import ABCMeta, abstractmethod
+import logging
 
 import wx
 
@@ -53,11 +54,15 @@ class EditableShape(metaclass=ABCMeta):
         self._points = []
         # The position of shape i.e. the center of the shape's bounding box
         self.position = model.TupleVA(UNDEFINED_POS_SIZE)
+        self.prev_position = self.position.value
         # The size of the shape's bounding box
         self.size = model.TupleVA(UNDEFINED_POS_SIZE)
+        self.prev_size = self.size.value
         self.cnvs = cnvs
         self.selected.subscribe(self._on_selected)
         self.coordinates.subscribe(self._on_coordinates)
+        self.position.subscribe(self._on_position)
+        self.size.subscribe(self._on_size)
 
     def _on_selected(self, selected):
         """
@@ -68,6 +73,23 @@ class EditableShape(metaclass=ABCMeta):
         if selected:
             self.points.value = [(y, x) for x, y in self._points]
             self.coordinates.value = util.get_polygon_bbox(self._points)
+
+    def _on_size(self, size):
+        if self.prev_size and self.prev_size != size:
+            diff_x = size[0] - self.prev_size[0]
+            diff_y = size[1] - self.prev_size[1]
+            for idx, point in enumerate(self._points):
+                self._points[idx] = (point[0] + diff_x, point[1] + diff_y)
+            self.prev_size = size
+
+    def _on_position(self, position):
+        # logging.error(f"Inside position. {self.prev_position} {position} {self._points}")
+        if self.prev_position and self.prev_position != position:
+            diff_x = position[0] - self.prev_position[0]
+            diff_y = position[1] - self.prev_position[1]
+            for idx, point in enumerate(self._points):
+                self._points[idx] = (point[0] + diff_x, point[1] + diff_y)
+            self.prev_position = position
 
     def _on_coordinates(self, coordinates):
         """
@@ -116,13 +138,14 @@ class ShapesOverlay(WorldOverlay):
         :param tool_va: (None or VA of value TOOL_*) New shapes can be created. If None, then
             no shape can be added by the user.
         """
-        if not issubclass(shape_cls, EditableShape):
+        if not (issubclass(shape_cls, EditableShape) and issubclass(shape_cls, WorldOverlay)):
             raise ValueError("Not a subclass of EditableShape!")
         WorldOverlay.__init__(self, cnvs)
         self.shape_cls = shape_cls
         # VA which changes value upon new shape's creation
         self.new_shape = model.VigilantAttribute(None, readonly=True)
         self._selected_shape = None
+        self._copy_shape = False
         self._shapes = []
         if tool and tool_va:
             self.tool = tool
@@ -186,15 +209,31 @@ class ShapesOverlay(WorldOverlay):
         if not self.active.value:
             return super().on_left_down(evt)
 
-        self._selected_shape = self._get_shape(evt)
-        if self._selected_shape is None:
+        # logging.error(f"{self._copy_shape}")
+        if not self._copy_shape:
+            self._selected_shape = self._get_shape(evt)
+            if self._selected_shape is None:
+                shape = self.shape_cls(self.cnvs)
+                self._shapes.append(shape)
+                self.cnvs.add_world_overlay(shape)
+                self.new_shape._set_value(shape, force_write=True)
+                self._selected_shape = shape
+                self._selected_shape.active.value = True
+                self._selected_shape.on_left_down(evt)
+        else:
             shape = self.shape_cls(self.cnvs)
+            shape._points = self._selected_shape._points.copy()
+            shape.prev_position = self._selected_shape.position.value
+            shape.prev_size = self._selected_shape.size.value
+            shape.position.value = self.cnvs.view_to_phys(evt.Position, self.cnvs.get_half_buffer_size())
             self._shapes.append(shape)
             self.cnvs.add_world_overlay(shape)
             self.new_shape._set_value(shape, force_write=True)
+            shape.active.value = True
+            shape.selected._set_value(True, must_notify=True)
             self._selected_shape = shape
-        self._selected_shape.active.value = True
-        self._selected_shape.on_left_down(evt)
+            self._copy_shape = False
+            self.cnvs.set_default_cursor(wx.CURSOR_CROSS)
         WorldOverlay.on_left_down(self, evt)
 
     def on_char(self, evt):
@@ -207,6 +246,12 @@ class ShapesOverlay(WorldOverlay):
                 self.remove_shape(self._selected_shape)
             elif evt.GetKeyCode() == wx.WXK_ESCAPE:
                 self._selected_shape.selected.value = False
+                self.cnvs.request_drawing_update()
+            elif evt.GetKeyCode() == wx.WXK_CONTROL_C:
+                logging.error("Copying")
+                self._copy_shape = True
+                self._selected_shape.selected.value = False
+                self.cnvs.set_default_cursor(wx.CURSOR_BULLSEYE)
                 self.cnvs.request_drawing_update()
         else:
             WorldOverlay.on_char(self, evt)

@@ -89,6 +89,8 @@ class RectangleOverlay(RectangleSelectOverlay):
                 elif hover in (gui.HOVER_SELECTION, gui.HOVER_LINE):
                     # Clicked inside selection or near line, so start dragging
                     self.start_drag()
+                elif hover == gui.HOVER_ROTATION:
+                    self.start_rotation()
                 else:
                     # Clicked on an edit point (e.g. an edge or start or end point), so edit
                     self.start_edit(hover)

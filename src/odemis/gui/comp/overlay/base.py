@@ -33,6 +33,7 @@ They will *only* receive mouse events if they are active!
 from abc import ABCMeta, abstractmethod
 import logging
 import math
+from typing import Optional
 
 import cairo
 import wx
@@ -618,6 +619,7 @@ SEL_MODE_NONE = 0
 SEL_MODE_CREATE = 1
 SEL_MODE_EDIT = 2
 SEL_MODE_DRAG = 3
+SEL_MODE_ROTATION = 6
 EDIT_MODE_POINT = 4
 EDIT_MODE_BOX = 5
 
@@ -641,7 +643,7 @@ class SelectionMixin(DragMixin):
 
     hover_margin = 10  # px
 
-    def __init__(self, colour=gui.SELECTION_COLOUR, center=(0, 0), edit_mode=EDIT_MODE_BOX):
+    def __init__(self, colour=gui.SELECTION_COLOUR, center=(0, 0), rotation=0, edit_mode=EDIT_MODE_BOX):
 
         DragMixin.__init__(self)
 
@@ -667,7 +669,28 @@ class SelectionMixin(DragMixin):
         # TODO: Move these to the super classes
         self.colour = conversion.hex_to_frgba(colour)
         self.highlight = conversion.hex_to_frgba(gui.FG_COLOUR_HIGHLIGHT)
-        self.center = center
+        self.center = Vec(center)
+        self.rotation = 0
+        logging.error(f"{self.rotation}")
+
+    def rotate_pos(self, pos: Vec):
+        """Rotate a position (x, y) counterclockwise by angle radians around a center point."""
+        pos = Vec(self.cnvs.buffer_to_view(pos))
+        dx = pos.x - self.center.x
+        dy = pos.y - self.center.y
+        angle = math.radians(self.rotation)
+        x_new = self.center.x + dx * math.cos(angle) - dy * math.sin(angle)
+        y_new = self.center.y + dx * math.sin(angle) + dy * math.cos(angle)
+        return Vec(self.cnvs.view_to_buffer((x_new, y_new)))
+
+    def rotate_pos_v(self, pos: Vec):
+        """Rotate a position (x, y) counterclockwise by angle radians around a center point."""
+        dx = pos.x - self.center.x
+        dy = pos.y - self.center.y
+        angle = math.radians(self.rotation)
+        x_new = self.center.x + dx * math.cos(angle) - dy * math.sin(angle)
+        y_new = self.center.y + dx * math.sin(angle) + dy * math.cos(angle)
+        return Vec(x_new, y_new)
 
     @staticmethod
     def _normalize_rect(rect_or_start, end=None):
@@ -693,13 +716,15 @@ class SelectionMixin(DragMixin):
         logging.debug("Starting selection")
 
         self.selection_mode = SEL_MODE_CREATE
+        drag_v_start_pos = self.rotate_pos(self.drag_v_start_pos)
         self.select_v_start_pos = self.select_v_end_pos = self.drag_v_start_pos
 
     def update_selection(self):
         """ Update the selection to reflect the given mouse position """
 
         # Cast to list, because we need to be able to alter the x and y separately
-        self.select_v_end_pos = Vec(self.cnvs.clip_to_viewport(self.drag_v_end_pos))
+        drag_v_end_pos = Vec(self.cnvs.clip_to_viewport(self.drag_v_end_pos))
+        self.select_v_end_pos = drag_v_end_pos
 
     def stop_selection(self):
         """ End the creation of the current selection """
@@ -747,7 +772,7 @@ class SelectionMixin(DragMixin):
         :param hover: (int) Compound value of gui.HOVER_* representing the hovered edges
 
         """
-
+        drag_v_start_pos = self.rotate_pos(self.drag_v_start_pos)
         self.edit_v_start_pos = self.drag_v_start_pos
         self.edit_hover = hover
         self.selection_mode = SEL_MODE_EDIT
@@ -779,7 +804,23 @@ class SelectionMixin(DragMixin):
 
     # #### drag methods  #####
 
+    def start_rotation(self):
+        if self.drag_v_start_pos:
+            dx = self.center.x - self.drag_v_start_pos.x
+            dy = self.center.y - self.drag_v_start_pos.y
+            self.rotation = math.atan2(dy, dx) % 360
+            self.selection_mode = SEL_MODE_ROTATION
+
+    def update_rotation(self):
+        current_pos = Vec(self.cnvs.clip_to_viewport(self.drag_v_end_pos))
+        logging.error(f"{self.center} {current_pos}")
+        dx = self.center.x - current_pos.x
+        dy = self.center.y - current_pos.y
+        self.rotation = math.degrees(math.atan2(dy, dx)) % 360
+        logging.error(f"Rotation {self.rotation}")
+
     def start_drag(self):
+        drag_v_start_pos = self.rotate_pos(self.drag_v_start_pos)
         self.edit_v_start_pos = self.drag_v_start_pos
         self.selection_mode = SEL_MODE_DRAG
 
@@ -791,6 +832,7 @@ class SelectionMixin(DragMixin):
                                       self.select_v_start_pos.y + diff.y)
         self.select_v_end_pos = Vec(self.select_v_end_pos.x + diff.x,
                                     self.select_v_end_pos.y + diff.y)
+        self._calc_center()
         self.edit_v_start_pos = current_pos
 
     def stop_drag(self):
@@ -811,6 +853,12 @@ class SelectionMixin(DragMixin):
             self.select_v_end_pos = Vec(self.cnvs.buffer_to_view(b_end_pos))
             self._calc_edges()
 
+    def _calc_center(self):
+        if self.select_v_start_pos and self.select_v_end_pos:
+            center_x = (self.select_v_start_pos.x + self.select_v_end_pos.x) / 2
+            center_y = (self.select_v_start_pos.y + self.select_v_end_pos.y) / 2
+            self.center = Vec(center_x, center_y)
+
     def _calc_edges(self):
         """ Calculate the inner and outer edges of the selection according to the hover margin """
 
@@ -822,8 +870,29 @@ class SelectionMixin(DragMixin):
 
             i_l, i_r = sorted([sx, ex])
             i_t, i_b = sorted([sy, ey])
-
+            # logging.error(f"Before {i_l} {i_r} {i_t} {i_b}")
+            self._calc_center()
+            # logging.error(f"Before {self.center} {self.rotation}")
+            left_top = self.rotate_pos_v(Vec(i_l, i_t))
+            right_top = self.rotate_pos_v(Vec(i_r, i_t))
+            right_bottom = self.rotate_pos_v(Vec(i_r, i_b))
+            left_bottom = self.rotate_pos_v(Vec(i_l, i_b))
+        
+            # i_l = min(left_top[0], right_top[0], right_bottom[0], left_bottom[0])
+            # i_t = min(left_top[1], right_top[1], right_bottom[1], left_bottom[1])
+            # i_r = max(left_top[0], right_top[0], right_bottom[0], left_bottom[0])
+            # i_b = max(left_top[1], right_top[1], right_bottom[1], left_bottom[1])
+            # logging.error(f"After {i_l} {i_r} {i_t} {i_b}")
             width = i_r - i_l
+            height = i_b - i_t
+            
+            logging.error(f"Center edges {self.center} {self.rotation}")
+
+            point_rotation = Vec((i_l + i_r) / 2, i_b + 2 * self.hover_margin)
+            r_l = point_rotation.x - self.hover_margin
+            r_r = point_rotation.x + self.hover_margin
+            r_t = point_rotation.y - self.hover_margin
+            r_b = point_rotation.y + self.hover_margin
 
             # Never have an inner box smaller than 2 times the margin
             if width < 2 * self.hover_margin:
@@ -836,8 +905,6 @@ class SelectionMixin(DragMixin):
                 i_r -= shrink
             o_l = i_l - 2 * self.hover_margin
             o_r = i_r + 2 * self.hover_margin
-
-            height = i_b - i_t
 
             if height < 2 * self.hover_margin:
                 grow = (2 * self.hover_margin - height) / 2
@@ -859,6 +926,26 @@ class SelectionMixin(DragMixin):
                 "i_r": i_r,
                 "o_t": o_t,
                 "i_b": i_b,
+                "r_l": r_l,
+                "r_r": r_r,
+                "r_t": r_t,
+                "r_b": r_b,
+                "left_top_l": left_top.x - self.hover_margin,
+                "left_top_r": left_top.x + self.hover_margin,
+                "left_top_t": left_top.y - self.hover_margin,
+                "left_top_b": left_top.y + self.hover_margin,
+                "right_top_l": right_top.x - self.hover_margin,
+                "right_top_r": right_top.x + self.hover_margin,
+                "right_top_t": right_top.y - self.hover_margin,
+                "right_top_b": right_top.y + self.hover_margin,
+                "right_bottom_l": right_bottom.x - self.hover_margin,
+                "right_bottom_r": right_bottom.x + self.hover_margin,
+                "right_bottom_t": right_bottom.y - self.hover_margin,
+                "right_bottom_b": right_bottom.y + self.hover_margin,
+                "left_bottom_l": left_bottom.x - self.hover_margin,
+                "left_bottom_r": left_bottom.x + self.hover_margin,
+                "left_bottom_t": left_bottom.y - self.hover_margin,
+                "left_bottom_b": left_bottom.y + self.hover_margin,
             })
 
             if self.edit_mode == EDIT_MODE_POINT:
@@ -951,6 +1038,11 @@ class SelectionMixin(DragMixin):
 
             vx, vy = vpos
 
+            if (
+                self.v_edges["r_l"] < vx < self.v_edges["r_r"] and
+                self.v_edges["r_t"] < vy < self.v_edges["r_b"]
+            ):
+                return gui.HOVER_ROTATION
             # If position outside outer box
             if (
                 not self.v_edges["o_l"] < vx < self.v_edges["o_r"] or
@@ -966,6 +1058,30 @@ class SelectionMixin(DragMixin):
                 ):
                     # logging.debug("Selection hover")
                     return gui.HOVER_SELECTION
+                # elif (
+                #     self.v_edges["left_top_l"] < vx < self.v_edges["left_top_r"] and
+                #     self.v_edges["left_top_t"] < vy < self.v_edges["left_top_b"]
+                # ):
+                #     logging.debug("Left top")
+                #     return 11
+                # elif (
+                #     self.v_edges["right_top_l"] < vx < self.v_edges["right_top_r"] and
+                #     self.v_edges["right_top_t"] < vy < self.v_edges["right_top_b"]
+                # ):
+                #     logging.debug("Right top")
+                #     return 11
+                # elif (
+                #     self.v_edges["right_bottom_l"] < vx < self.v_edges["right_bottom_r"] and
+                #     self.v_edges["right_bottom_t"] < vy < self.v_edges["right_bottom_b"]
+                # ):
+                #     logging.debug("Right bottom")
+                #     return 11
+                # elif (
+                #     self.v_edges["left_bottom_l"] < vx < self.v_edges["left_bottom_r"] and
+                #     self.v_edges["left_bottom_t"] < vy < self.v_edges["left_bottom_b"]
+                # ):
+                #     logging.debug("Left bottom")
+                #     return 11
                 else:
                     hover = gui.HOVER_NONE
 
@@ -977,10 +1093,10 @@ class SelectionMixin(DragMixin):
                         hover |= gui.HOVER_RIGHT_EDGE
 
                     if vy < self.v_edges["i_t"]:
-                        logging.debug("Top edge hover")
+                        # logging.debug("Top edge hover")
                         hover |= gui.HOVER_TOP_EDGE
                     elif vy > self.v_edges["i_b"]:
-                        logging.debug("Bottom edge hover")
+                        # logging.debug("Bottom edge hover")
                         hover |= gui.HOVER_BOTTOM_EDGE
 
                     return hover
@@ -1042,6 +1158,8 @@ class SelectionMixin(DragMixin):
             elif hover in (gui.HOVER_SELECTION, gui.HOVER_LINE):
                 # Clicked inside selection or near line, so start dragging
                 self.start_drag()
+            elif hover == gui.HOVER_ROTATION:
+                self.start_rotation()
             else:
                 # Clicked on an edit point (e.g. an edge or start or end point), so edit
                 self.start_edit(hover)
@@ -1074,6 +1192,8 @@ class SelectionMixin(DragMixin):
                 self.update_edit()
             elif self.selection_mode == SEL_MODE_DRAG:
                 self.update_drag()
+            elif self.selection_mode == SEL_MODE_ROTATION:
+                self.update_rotation()
             self.cnvs.Refresh()
 
         # Cursor manipulation should be done in superclasses
@@ -1118,7 +1238,32 @@ class LineEditingMixin(ClickMixin, DragMixin):
         # TODO: Move these to the super classes
         self.colour = conversion.hex_to_frgba(colour)
         self.highlight = conversion.hex_to_frgba(gui.FG_COLOUR_HIGHLIGHT)
-        self.center = center
+        self.center = Vec(center)
+        self.rotation = 0
+
+    def rotate_pos(self, pos: Vec):
+        """Rotate a position (x, y) counterclockwise by angle radians around a center point."""
+        dx = pos.x - self.center.x
+        dy = pos.y - self.center.y
+        angle = math.radians(self.rotation)
+        x_new = self.center.x + dx * math.cos(angle) - dy * math.sin(angle)
+        y_new = self.center.y + dx * math.sin(angle) + dy * math.cos(angle)
+        return Vec(x_new, y_new)
+
+    def start_rotation(self):
+        if self.drag_v_start_pos:
+            dx = self.center.x - self.drag_v_start_pos.x
+            dy = self.center.y - self.drag_v_start_pos.y
+            self.rotation = math.atan2(dy, dx) % 360
+            self.selection_mode = SEL_MODE_ROTATION
+
+    def update_rotation(self):
+        current_pos = Vec(self.cnvs.clip_to_viewport(self.drag_v_end_pos))
+        logging.error(f"{self.center} {current_pos}")
+        dx = self.center.x - current_pos.x
+        dy = self.center.y - current_pos.y
+        self.rotation = math.degrees(math.atan2(dy, dx)) % 360
+        logging.error(f"Rotation {self.rotation}")
 
     def stop_selection(self):
         """End the creation of the current selection."""
