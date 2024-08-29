@@ -32,10 +32,11 @@ from odemis.gui.cont.microscope import FastEMStateController
 from odemis.gui.model import VIEW_LAYOUT_DYNAMIC, VIEW_LAYOUT_ONE
 from odemis.gui.util import call_in_wx_main, get_home_folder
 from odemis.gui.util.conversion import sample_positions_to_layout
-from odemis.util import read_json, write_json
+from odemis.util.dataio import read_json, write_json
+from odemis.util.filename import make_compliant_string
 
 # Default entry value
-DEFAULT_USER = "default"
+DEFAULT_USER = "fastem-user"
 # Entries
 USER_PROFILE = "User profile"
 CURRENT = "Current"
@@ -43,7 +44,7 @@ VOLTAGE = "Voltage"
 OVERVOLTAGE = "Overvoltage"
 DWELL_TIME_OVERVIEW_IMAGE = "Dwell time (overview image)"
 DWELL_TIME_ACQUISITION = "Dwell time (acquisition)"
-SCINTILLATOR_HOLDER = "Scintillator holder"
+SAMPLE_CARRIER = "Sample carrier"
 SELECTED_SCINTILLATORS = "Selected scintillators"
 USER_NOTE = "User note"
 # Control config for the entries
@@ -57,7 +58,7 @@ CONTROL_CONFIG = {
         "style": wx.CB_READONLY,
     },
     VOLTAGE: {
-        "labels": ["2.5 kV", "4 kV", " 5 kV", "10 kV"],
+        "labels": ["2.5 kV", "4 kV", "5 kV", "10 kV"],
         "choices": [2500, 4000, 5000, 10000],
         "style": wx.CB_READONLY,
     },
@@ -67,7 +68,7 @@ CONTROL_CONFIG = {
     },
     DWELL_TIME_OVERVIEW_IMAGE: {},
     DWELL_TIME_ACQUISITION: {},
-    SCINTILLATOR_HOLDER: {
+    SAMPLE_CARRIER: {
         "style": wx.CB_READONLY,
     },
     SELECTED_SCINTILLATORS: {
@@ -147,11 +148,14 @@ class FastEMUserSettingsPanel(object):
         if self.user_profile_data is None:
             # Create the json file and write the data for the default user
             # user_profile_data is Dict[str, Dict[str, Any]]
-            # Example {"default": {"Current": "1 nA", "Voltage": "5 kV"}}
+            # Example {"fastem-user": {"Current": "1 nA", "Voltage": "5 kV"}}
             self.user_profile_data = {}
             self.user_profile_data[DEFAULT_USER] = default_profile_data
             self.write_user_profile_data()
         else:
+            if DEFAULT_USER not in self.user_profile_data:
+                self.user_profile_data[DEFAULT_USER] = default_profile_data
+                self.write_user_profile_data()
             for user, data in self.user_profile_data.items():
                 default_data = default_profile_data.copy()
                 default_data.update(data)
@@ -193,7 +197,7 @@ class FastEMUserSettingsPanel(object):
         CONTROL_CONFIG[OVERVOLTAGE].update(overvoltage_conf)
         CONTROL_CONFIG[DWELL_TIME_OVERVIEW_IMAGE].update(dwell_time_overview_conf)
         CONTROL_CONFIG[DWELL_TIME_ACQUISITION].update(dwell_time_acq_conf)
-        CONTROL_CONFIG[SCINTILLATOR_HOLDER].update(
+        CONTROL_CONFIG[SAMPLE_CARRIER].update(
             {"choices": list(self.main_data.samples.value.keys())}
         )
         if self.user_profile_data:
@@ -222,15 +226,15 @@ class FastEMUserSettingsPanel(object):
     def write_user_profile_data(self):
         write_json(self.user_profile_config_path, self.user_profile_data)
 
-    def get_entry_control_values(self) -> Dict[str, Any]:
-        """Get the current entry control values."""
+    def get_control_values(self) -> Dict[str, Any]:
+        """Get the current entries control values."""
         return {
             entry: self.user_settings_panel.FindWindowByName(entry).GetValue()
             for entry in self.user_profile_data[DEFAULT_USER].keys()
         }
 
-    def set_entry_control_values(self):
-        """Set the entry control values for the current user."""
+    def set_control_values(self):
+        """Set the entries control values for the current user."""
         for entry in self.user_profile_data[DEFAULT_USER].keys():
             ctrl = self.user_settings_panel.FindWindowByName(entry)
             if ctrl:
@@ -295,6 +299,7 @@ class FastEMUserSettingsPanel(object):
         elif evt.GetEventType() == wx.EVT_TEXT_ENTER.typeId:
             if entry == USER_PROFILE:
                 value = ctrl.GetValue().strip().lower()
+                value = make_compliant_string(value)
                 if value and self.original_user:
                     if (
                         self.original_user != DEFAULT_USER
@@ -306,21 +311,21 @@ class FastEMUserSettingsPanel(object):
                             self.main_data.current_user.value = value
                             del self.user_profile_data[self.original_user]
                             self.user_profile_data[value] = (
-                                self.get_entry_control_values()
+                                self.get_control_values()
                             )
                             self.original_user = value
                             update_data = True
                         else:
                             ctrl.SetValue(value)
                             self.main_data.current_user.value = value
-                            self.set_entry_control_values()
+                            self.set_control_values()
                             self.original_user = value
                     else:
                         ctrl.SetValue(DEFAULT_USER)
                 else:
                     ctrl.SetValue(DEFAULT_USER)
                     self.main_data.current_user.value = DEFAULT_USER
-                    self.set_entry_control_values()
+                    self.set_control_values()
             elif entry == OVERVOLTAGE:
                 # Call on_text_enter explicitly as it is not binded
                 ctrl.on_text_enter(evt)
@@ -352,9 +357,9 @@ class FastEMUserSettingsPanel(object):
             if entry == USER_PROFILE:
                 if value != self.main_data.current_user.value:
                     self.main_data.current_user.value = value
-                    self.set_entry_control_values()
+                    self.set_control_values()
                     update_data = True
-            elif entry == SCINTILLATOR_HOLDER:
+            elif entry == SAMPLE_CARRIER:
                 current_sample = self.main_data.current_sample.value
                 if (current_sample and current_sample.type != value) or (
                     current_sample is None
@@ -363,7 +368,7 @@ class FastEMUserSettingsPanel(object):
                         value
                     ]
                     self._update_selected_scintillators_layout()
-                    self.scintillator_holder_ctrl.Enable(False)
+                    self.sample_carrier_ctrl.Enable(False)
             elif entry in [VOLTAGE, CURRENT]:
                 if entry == VOLTAGE:
                     if self.main_data.ebeam.accelVoltage.value != ctrl.GetClientData(
@@ -431,22 +436,21 @@ class FastEMUserSettingsPanel(object):
             "Enter new user:", parent=self.user_profile_add_button_ctrl
         )
         value = value.strip().lower()
+        value = make_compliant_string(value)
         ctrl = self.user_profile_ctrl
         if value:
+            self.main_data.current_user.value = value
             if value not in ctrl.GetStrings():
                 ctrl.Append(value)
-                self.user_profile_data[value] = self.get_entry_control_values()
+                self.user_profile_data[value] = self.get_control_values()
             elif value != self.main_data.current_user.value:
-                self.main_data.current_user.value = value
-                self.set_entry_control_values()
-            else:
-                self.main_data.current_user.value = value
+                self.set_control_values()
             ctrl.SetValue(value)
             self.write_user_profile_data()
         else:
             ctrl.SetValue(DEFAULT_USER)
             self.main_data.current_user.value = DEFAULT_USER
-            self.set_entry_control_values()
+            self.set_control_values()
 
     def on_user_profile_delete_button_ctrl(self, evt):
         ctrl = self.user_profile_ctrl
@@ -459,7 +463,7 @@ class FastEMUserSettingsPanel(object):
             # Set back the user profile to default user on delete
             ctrl.SetValue(DEFAULT_USER)
             self.main_data.current_user.value = DEFAULT_USER
-            self.set_entry_control_values()
+            self.set_control_values()
             self.write_user_profile_data()
 
     def _bind_user_profile_control_events(self, ctrl, entry):
@@ -472,7 +476,7 @@ class FastEMUserSettingsPanel(object):
             self.user_profile_delete_button_ctrl.Bind(
                 wx.EVT_BUTTON, self.on_user_profile_delete_button_ctrl
             )
-        if entry in [USER_PROFILE, CURRENT, VOLTAGE, SCINTILLATOR_HOLDER]:
+        if entry in [USER_PROFILE, CURRENT, VOLTAGE, SAMPLE_CARRIER]:
             ctrl.Bind(wx.EVT_COMBOBOX, self.on_control_event)
         if entry in [DWELL_TIME_OVERVIEW_IMAGE, DWELL_TIME_ACQUISITION]:
             ctrl.Bind(wx.EVT_SLIDER, self.on_control_event)
@@ -486,7 +490,7 @@ class FastEMUserSettingsPanel(object):
             ctrl.Bind(wx.EVT_TIMER, self.on_control_event)
 
     def _create_user_profile_control_entries(self):
-        # TODO uncomment the VOLTAGE entry when the development is finished
+        # TODO uncomment the CURRENT entry when the development is finished
         # to support its value changes
         control_definitions = [
             (USER_PROFILE, CONTROL_CONFIG[USER_PROFILE]),
@@ -495,7 +499,7 @@ class FastEMUserSettingsPanel(object):
             (OVERVOLTAGE, CONTROL_CONFIG[OVERVOLTAGE]),
             (DWELL_TIME_OVERVIEW_IMAGE, CONTROL_CONFIG[DWELL_TIME_OVERVIEW_IMAGE]),
             (DWELL_TIME_ACQUISITION, CONTROL_CONFIG[DWELL_TIME_ACQUISITION]),
-            (SCINTILLATOR_HOLDER, CONTROL_CONFIG[SCINTILLATOR_HOLDER]),
+            (SAMPLE_CARRIER, CONTROL_CONFIG[SAMPLE_CARRIER]),
             (SELECTED_SCINTILLATORS, CONTROL_CONFIG[SELECTED_SCINTILLATORS]),
             (USER_NOTE, CONTROL_CONFIG[USER_NOTE]),
         ]
@@ -520,7 +524,7 @@ class FastEMUserSettingsPanel(object):
                     self.main_data.user_dwell_time_overview.value = float(value)
                 elif entry == DWELL_TIME_ACQUISITION:
                     self.main_data.user_dwell_time_acquisition.value = float(value)
-            elif entry in [USER_PROFILE, CURRENT, VOLTAGE, SCINTILLATOR_HOLDER]:
+            elif entry in [USER_PROFILE, CURRENT, VOLTAGE, SAMPLE_CARRIER]:
                 if entry == USER_PROFILE:
                     value = DEFAULT_USER
                     _, ctrl = (
@@ -532,7 +536,7 @@ class FastEMUserSettingsPanel(object):
                     self.user_profile_delete_button_ctrl = ctrl.delete_btn
                     self.user_profile_ctrl = ctrl
                 else:
-                    if entry == SCINTILLATOR_HOLDER:
+                    if entry == SAMPLE_CARRIER:
                         self.user_settings_panel.add_divider()
                         value = None
                     elif entry == VOLTAGE:
@@ -546,8 +550,8 @@ class FastEMUserSettingsPanel(object):
                     _, ctrl = self.user_settings_panel.add_combobox_control(
                         entry, value=value, conf=conf
                     )
-                    if entry == SCINTILLATOR_HOLDER:
-                        self.scintillator_holder_ctrl = ctrl
+                    if entry == SAMPLE_CARRIER:
+                        self.sample_carrier_ctrl = ctrl
             elif entry == USER_NOTE:
                 self.user_settings_panel.add_divider()
                 _, ctrl = self.user_settings_panel.add_text_field(

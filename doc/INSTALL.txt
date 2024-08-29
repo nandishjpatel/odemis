@@ -12,7 +12,8 @@ python-libtiff python-comedilib python-h5py libtiff5-dev python-future \
 python-pkg-resources python-netifaces python-cairo python-numpy python-scipy \
 python-decorator python-xdg python-suds python-matplotlib python-opencv \
 python-wxgtk4.0 python-serial python-evdev python-notify2 python-psutil \
-graphicsmagick cgroup-bin python2-pyro4 authbind python-setuptools cython
+graphicsmagick cgroup-bin python2-pyro4 authbind python-setuptools cython \
+python3-shapely
 
 Some of these packages need newer version than what is available in the default
 Ubuntu repository. They can be found on Delmic's PPA, or it's possible to
