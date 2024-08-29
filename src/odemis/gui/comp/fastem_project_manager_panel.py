@@ -29,8 +29,8 @@ from typing import Union
 
 import wx
 
-from odemis.acq.fastem import FastEMROA
 from odemis.gui import SELECTION_COLOUR, img
+from odemis.gui.comp.fastem_roa import FastEMROA
 from odemis.gui.comp.settings import SettingsPanel
 from odemis.gui.conf.file import AcquisitionConfig
 from odemis.gui.cont.fastem_grid_base import DEFAULT_PARENT
@@ -52,11 +52,11 @@ from odemis.gui.cont.tabs.fastem_project_sections_tab import (
 )
 from odemis.gui.cont.tabs.fastem_project_settings_tab import FastEMProjectSettingsTab
 from odemis.gui.cont.tabs.tab_bar_controller import TabController
-from odemis.gui.model import TOOL_ELLIPSE, TOOL_POLYGON, TOOL_RECTANGLE
+from odemis.gui.model import TOOL_ELLIPSE, TOOL_NONE, TOOL_POLYGON, TOOL_RECTANGLE
 from odemis.gui.util import call_in_wx_main
 from odemis.util import units
 from odemis.util.conversion import hex_to_frgba, hex_to_rgb
-from odemis.util.filename import make_unique_name
+from odemis.util.filename import make_unique_name, make_compliant_string
 
 FASTEM_PROJECT_COLOURS = [
     "#0000ff",
@@ -454,6 +454,9 @@ class FastEMProjectManagerPanel:
             main_frame,
             self.main_data,
         )
+        # TODO Remove the below line once automatic section detection and ROA
+        # propagation has been implemented
+        self.project_ribbons_tab.button.Hide()
 
         project_sections_panel = wx.Panel(
             panel.pnl_project_tabs,
@@ -468,6 +471,9 @@ class FastEMProjectManagerPanel:
             self.main_data,
             self.project_ribbons_tab.grid,
         )
+        # TODO Remove the below line once automatic section detection and ROA
+        # propagation has been implemented
+        self.project_sections_tab.button.Hide()
 
         project_roas_panel = wx.Panel(
             panel.pnl_project_tabs,
@@ -542,6 +548,9 @@ class FastEMProjectManagerPanel:
         :param is_acquiring: (bool) Flag indicating if acquisition is in progress.
         """
         self.panel.Enable(not is_acquiring)
+        self.toolbar.enable(not is_acquiring)
+        enable = self.tab_data.active_project_tab.value != self.project_settings_tab
+        self._enable_tools(enable)
 
     def _on_btn_export(self, _):
         """
@@ -669,6 +678,12 @@ class FastEMProjectManagerPanel:
         self.toolbar.enable_button(TOOL_RECTANGLE, enable)
         self.toolbar.enable_button(TOOL_ELLIPSE, enable)
         self.toolbar.enable_button(TOOL_POLYGON, enable)
+        if not enable and self.tab_data.tool.value in (
+            TOOL_RECTANGLE,
+            TOOL_ELLIPSE,
+            TOOL_POLYGON,
+        ):
+            self.tab_data.tool.value = TOOL_NONE
 
     def _on_current_project(self, project):
         """
@@ -700,6 +715,7 @@ class FastEMProjectManagerPanel:
             if shape in self._shape_points_sub_callback:
                 del self._shape_points_sub_callback[shape]
         else:
+            shape_name = shape.name.value
             posx, posy = shape.get_position()
             sizex, sizey = shape.get_size()
             sizex = units.readable_str(sizex, unit="m", sig=3)
@@ -710,7 +726,10 @@ class FastEMProjectManagerPanel:
                 self.tab_data.current_project.value
             )
             if self.tab_data.active_project_tab.value == self.project_ribbons_tab:
-                ribbon_name = "Ribbon"
+                if shape_name:
+                    ribbon_name = shape_name.rsplit("_", 1)[0]
+                else:
+                    ribbon_name = "Ribbon"
                 ribbon_slice_index = 0
                 if not RibbonRow.is_unique_name_slice_idx(
                     ribbon_name, ribbon_slice_index, self.project_ribbons_tab.grid.rows
@@ -736,7 +755,10 @@ class FastEMProjectManagerPanel:
                     FastEMTreeNode(shape.name.value, NodeType.RIBBON, row)
                 )
             elif self.tab_data.active_project_tab.value == self.project_sections_tab:
-                section_name = "Section"
+                if shape_name:
+                    section_name = shape_name.rsplit("_", 1)[0]
+                else:
+                    section_name = "Section"
                 section_slice_index = 0
                 if not SectionRow.is_unique_name_slice_idx(
                     section_name,
@@ -766,7 +788,10 @@ class FastEMProjectManagerPanel:
                     FastEMTreeNode(shape.name.value, NodeType.SECTION, row)
                 )
             elif self.tab_data.active_project_tab.value == self.project_roas_tab:
-                roa_name = "ROA"
+                if shape_name:
+                    roa_name = shape_name.rsplit("_", 1)[0]
+                else:
+                    roa_name = "ROA"
                 roa_slice_index = 0
                 if not SectionRow.is_unique_name_slice_idx(
                     roa_name, roa_slice_index, self.project_roas_tab.grid.rows
@@ -811,7 +836,8 @@ class FastEMProjectManagerPanel:
         if len(added_shape) == 1:
             shape = added_shape.pop()
             logging.debug("Shape creation in progress.")
-            # If shape has been named already, it means that import button was pressed
+            # If shape has been named already
+            # it means undo, redo or copy operation is ongoing in ShapesOverlay
             if shape.name.value:
                 self._on_shape_points(shape.points.value, shape)
             else:
@@ -820,7 +846,7 @@ class FastEMProjectManagerPanel:
                 shape.points.subscribe(sub_callback)
         if len(removed_shape) == 1:
             shape = removed_shape.pop()
-            # Handle wx.WXK_DELETE pressed in ShapesOverlay
+            # Handle wx.WXK_DELETE pressed, undo or redo in ShapesOverlay
             if not self.is_active_project_delete_button_pressed:
                 logging.debug("Shape deletion in progress.")
                 self.tab_data.projects_tree.delete_node_by_shape(shape)
@@ -892,6 +918,7 @@ class FastEMProjectManagerPanel:
             ),
         )
         value = value.strip()
+        value = make_compliant_string(value)
         ctrl = self.active_project_ctrl
         if value:
             if value not in ctrl.GetStrings():
@@ -900,6 +927,12 @@ class FastEMProjectManagerPanel:
                     FastEMTreeNode(value, NodeType.PROJECT)
                 )
                 self.update_project_shape_colour(value)
+            else:
+                wx.MessageBox(
+                    f"{value} exists in Active project list, switching to {value}.",
+                    "Info",
+                    wx.OK | wx.ICON_INFORMATION,
+                )
             ctrl.SetValue(value)
             self.update_grid_for_project(value)
             self.tab_data.current_project.value = value
@@ -943,6 +976,7 @@ class FastEMProjectManagerPanel:
         elif evt.GetEventType() == wx.EVT_TEXT_ENTER.typeId:
             if ctrl.GetStrings():
                 value = ctrl.GetValue().strip()
+                value = make_compliant_string(value)
                 if self.original_project and self.original_project in ctrl.GetStrings():
                     if value and value not in ctrl.GetStrings():
                         idx = ctrl.FindString(self.original_project)

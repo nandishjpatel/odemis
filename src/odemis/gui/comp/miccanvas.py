@@ -1822,7 +1822,7 @@ class FastEMMainCanvas(DblMicroscopeCanvas):
 
     def add_background_overlay(self, scintillator: Scintillator):
         """
-        :param scintillator: The scintiallor for which the background overlay need to be drawn.
+        :param scintillator: The scintillator for which the background overlay need to be drawn.
         """
         self.bg_overlay = FastEMScintillatorOverlay(cnvs=self, scintillator=scintillator)
         self.add_world_overlay(self.bg_overlay)
@@ -1853,19 +1853,16 @@ class FastEMMainCanvas(DblMicroscopeCanvas):
         return roc_overlay
 
     @call_in_wx_main
-    def fit_view_to_content(self, recenter=None):
+    def expand_view(self):
         """
-        Override base class fit_view_to_content method.
-
         It calls fit_to_bbox to zoom in to the scintillator bounding box and recenter.
 
         :raises: ValueError in case it's called too early during GUI startup.
         """
-        logging.debug("Zooming out of scintillator.")
         if self.bg_overlay:
             self.fit_to_bbox((self.bg_overlay.get_scintillator_bbox()))
         else:
-            raise ValueError("Tab data model not initialized yet.")
+            raise ValueError("Background overlay is not initialized yet.")
 
     def on_dbl_click(self, evt):
         # don't recenter on double click, it's confusing, especially because selecting + moving a ROA
@@ -1911,7 +1908,7 @@ class FastEMMainCanvas(DblMicroscopeCanvas):
         Both canvas dragging and tool creation make use of left click and motion, therefore
         additional Ctrl key check is used to aid both functionalities.
         """
-        if self.is_shape_tool and self.is_ctrl_down or not self.is_shape_tool:
+        if (self.is_shape_tool and self.is_ctrl_down) or not self.is_shape_tool:
             canvas.DraggableCanvas.on_motion(self, evt)
         else:
             canvas.BitmapCanvas.on_motion(self, evt)
@@ -1962,6 +1959,7 @@ class FastEMMainCanvas(DblMicroscopeCanvas):
             self._tab_data_model.focussedView.unsubscribe(self._on_focussed_view)
         super()._on_destroy(evt)
 
+    @call_in_wx_main
     def _on_shape_tool(self, tool_id):
         self.is_shape_tool = tool_id in (
             guimodel.TOOL_RECTANGLE,
@@ -1975,7 +1973,10 @@ class FastEMMainCanvas(DblMicroscopeCanvas):
                 and is_view_focussed
                 and len(self._tab_data_model.current_project.value) > 0
             )
+            if shape_overlay.active.value:
+                logging.debug(f"Activated {shape_overlay.shape_cls.__name__} for scintillator {self.view.name.value}")
 
+    @call_in_wx_main
     def _on_focussed_view(self, focussed_view):
         for shape_overlay in self.shapes_overlay:
             shape_overlay.active.value = (
@@ -1983,3 +1984,5 @@ class FastEMMainCanvas(DblMicroscopeCanvas):
                 and self.view == focussed_view
                 and len(self._tab_data_model.current_project.value) > 0
             )
+            if shape_overlay.active.value:
+                logging.debug(f"Activated {shape_overlay.shape_cls.__name__} for scintillator {self.view.name.value}")
