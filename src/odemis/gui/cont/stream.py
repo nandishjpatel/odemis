@@ -36,6 +36,7 @@ from odemis import model, util
 from odemis.acq.stream import MeanSpectrumProjection
 from odemis.gui import (CONTROL_COMBO, CONTROL_FLT, FG_COLOUR_DIS,
                         FG_COLOUR_ERROR, FG_COLOUR_WARNING)
+from odemis.gui.comp.foldpanelbar import FoldPanelBar
 from odemis.gui.comp.overlay.repetition_select import RepetitionSelectOverlay
 from odemis.gui.comp.stream_panel import (OPT_BTN_PEAK, OPT_BTN_REMOVE, OPT_BTN_SHOW,
                                           OPT_BTN_TINT, OPT_BTN_UPDATE, OPT_FIT_RGB,
@@ -52,6 +53,7 @@ from odemis.util import fluo
 from odemis.util.conversion import wavelength2rgb
 from odemis.util.fluo import get_one_center, to_readable_band
 from odemis.util.units import readable_str
+
 
 # There are two kinds of controllers:
 # * Stream controller: links 1 stream <-> stream panel (cont/stream/StreamPanel)
@@ -1386,12 +1388,33 @@ class FastEMStreamController(StreamController):
         assert isinstance(stream, acqstream.SEMStream)  # don't show for CCD stream
         self._add_fastem_ctrls()
 
+    def _create_immersion_mode_cbox(self):
+        # HACK manually create the checkbox using custom gb_sizer's pos and span
+        _ = self.stream_panel._add_side_label("Immersion Mode")
+        cbox_immersion_mode = wx.CheckBox(self.stream_panel._panel, wx.ID_ANY,
+                                 style=wx.ALIGN_RIGHT | wx.NO_BORDER)
+
+        self.stream_panel.gb_sizer.Add(cbox_immersion_mode, (self.stream_panel.num_rows, 2), span=(1, 1),
+                          flag=wx.ALIGN_CENTRE_VERTICAL | wx.EXPAND | wx.TOP | wx.BOTTOM, border=5)
+        cbox_immersion_mode.SetValue(self.stream.emitter.immersion.value)
+
+        if not self.stream_panel.gb_sizer.IsColGrowable(1):
+            self.stream_panel.gb_sizer.AddGrowableCol(1)
+
+        # Re-layout the FoldPanelBar parent
+        win = self.stream_panel
+        while not isinstance(win, FoldPanelBar):
+            win = win.Parent
+        win.Layout()
+        # Advance the row count for the next control
+        self.stream_panel.num_rows += 1
+        return cbox_immersion_mode
+
     def _add_fastem_ctrls(self):
         self.stream_panel.add_divider()
         # Create the immersion mode button
-        _, cbox_immersion_mode = self.stream_panel.add_checkbox_control(
-            label_text="Immersion Mode", value=self.stream.emitter.immersion.value
-        )
+        cbox_immersion_mode = self._create_immersion_mode_cbox()
+        # Create the buttons
         _, self.btn_optical_autofocus = self.stream_panel.add_run_btn(
             label_text="Optical autofocus", button_label="Run"
         )
