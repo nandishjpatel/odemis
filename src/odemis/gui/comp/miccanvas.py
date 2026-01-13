@@ -59,6 +59,7 @@ from odemis.gui.comp.overlay.ellipse import EllipseOverlay
 from odemis.gui.comp.overlay.fastem import FastEMROCOverlay, FastEMScintillatorOverlay
 from odemis.gui.comp.overlay.focus import FocusOverlay
 from odemis.gui.comp.overlay.gadget import GadgetOverlay
+from odemis.gui.comp.overlay.grouping import GroupingOverlay
 from odemis.gui.comp.overlay.history import HistoryOverlay
 from odemis.gui.comp.overlay.marking_line import MarkingLineOverlay
 from odemis.gui.comp.overlay.pixel_select import PixelSelectOverlay
@@ -1827,9 +1828,10 @@ class FastEMMainCanvas(DblMicroscopeCanvas):
         # List of overlays which handles creation, editing and removal of a shape class which
         # is a subclass of EditableShape class
         self.shapes_overlay = []
+        self.grouping_overlay = None
         self.bg_view_overlay = None
         self.bg_world_overlay = None
-        self.is_ctrl_down = False
+        self.is_shift_down = False
         self.is_shape_tool_active = False
 
     def add_background_overlay(self, scintillator: Scintillator):
@@ -1892,10 +1894,10 @@ class FastEMMainCanvas(DblMicroscopeCanvas):
         Both canvas dragging and tool creation make use of left click and motion, therefore
         additional Ctrl key check is used to aid both functionalities.
         """
-        # Use self.is_ctrl_down for on_left_up and on_motion because there can be a corner case where
+        # Use self.is_shift_down for on_left_up and on_motion because there can be a corner case where
         # Ctrl key is not pressed anymore and on_left_up or on_motion event is called.
-        self.is_ctrl_down = evt.ControlDown()
-        if (self.is_shape_tool_active and self.is_ctrl_down) or not self.is_shape_tool_active:
+        self.is_shift_down = evt.ShiftDown()
+        if (self.is_shape_tool_active and self.is_shift_down) or not self.is_shape_tool_active:
             # Start the dragging procedure
             canvas.DraggableCanvas.on_left_down(self, evt)
         else:
@@ -1910,7 +1912,7 @@ class FastEMMainCanvas(DblMicroscopeCanvas):
         Both canvas dragging and tool creation make use of left click and motion, therefore
         additional Ctrl key check is used to aid both functionalities.
         """
-        if (self.is_shape_tool_active and self.is_ctrl_down) or not self.is_shape_tool_active:
+        if (self.is_shape_tool_active and self.is_shift_down) or not self.is_shape_tool_active:
             # End the dragging procedure
             canvas.DraggableCanvas.on_left_up(self, evt)
         else:
@@ -1927,7 +1929,7 @@ class FastEMMainCanvas(DblMicroscopeCanvas):
         Both canvas dragging and tool creation make use of left click and motion, therefore
         additional Ctrl key check is used to aid both functionalities.
         """
-        if (self.is_shape_tool_active and self.is_ctrl_down) or not self.is_shape_tool_active:
+        if (self.is_shape_tool_active and self.is_shift_down) or not self.is_shape_tool_active:
             # Set the drag shift and refresh the image if dragging is enabled
             canvas.DraggableCanvas.on_motion(self, evt)
         else:
@@ -1971,6 +1973,16 @@ class FastEMMainCanvas(DblMicroscopeCanvas):
             self.add_world_overlay(polygon_overlay)
             self.shapes_overlay.append(polygon_overlay)
 
+        if guimodel.TOOL_GROUP in tab_data.tool.choices:
+            self.grouping_overlay = GroupingOverlay(
+                cnvs=self,
+                shapes_va=tab_data.shapes,
+                tool=guimodel.TOOL_GROUP,
+                tool_va=self._tab_data_model.tool,
+            )
+            self.add_world_overlay(self.grouping_overlay)
+            self._tab_data_model.tool.unsubscribe(self.grouping_overlay._on_tool)
+
         self._tab_data_model.tool.subscribe(self._on_shape_tool, init=True)
         self._tab_data_model.focussedView.subscribe(self._on_focussed_view)
 
@@ -1986,8 +1998,14 @@ class FastEMMainCanvas(DblMicroscopeCanvas):
             guimodel.TOOL_RECTANGLE,
             guimodel.TOOL_ELLIPSE,
             guimodel.TOOL_POLYGON,
+            guimodel.TOOL_GROUP
         )
         is_view_focussed = self.view == self._tab_data_model.focussedView.value
+        self.grouping_overlay.active.value = (
+            self.grouping_overlay.tool == tool_id
+            and is_view_focussed
+            and len(self._tab_data_model.current_project.value) > 0
+        )
         for shape_overlay in self.shapes_overlay:
             shape_overlay.active.value = (
                 shape_overlay.tool == tool_id
@@ -1999,6 +2017,11 @@ class FastEMMainCanvas(DblMicroscopeCanvas):
 
     @call_in_wx_main
     def _on_focussed_view(self, focussed_view):
+        self.grouping_overlay.active.value = (
+            self.grouping_overlay.tool == self._tab_data_model.tool.value
+            and self.view == focussed_view
+            and len(self._tab_data_model.current_project.value) > 0
+        )
         for shape_overlay in self.shapes_overlay:
             shape_overlay.active.value = (
                 shape_overlay.tool == self._tab_data_model.tool.value

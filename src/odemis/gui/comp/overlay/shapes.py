@@ -41,7 +41,7 @@ UNDO_STACK_DEPTH = 25
 # Named tuple for elements stored in undo and redo stacks
 ShapeState = namedtuple("ShapeState", ["shape", "state", "action"])
 # Enum class to store ShapeState's action
-Action = Enum("Action", ["EDIT", "CREATE", "DELETE"])
+Action = Enum("Action", ["EDIT", "CREATE", "DELETE", "GROUP", "UNGROUP"])
 
 
 class EditableShape(metaclass=ABCMeta):
@@ -57,6 +57,7 @@ class EditableShape(metaclass=ABCMeta):
         self.selected = model.BooleanVA(True)
         # States if the shape creation is done
         self.is_created = model.BooleanVA(False)
+        self.parent_group = model.VigilantAttribute(None)
         # list of nested points (x, y) representing the shape and whose value will be used
         # during ROA acquisition
         # The points VA is set to _points if the shape is selected
@@ -170,6 +171,94 @@ class EditableShape(metaclass=ABCMeta):
         pass
 
 
+class EditableShapeGroup(EditableShape):
+
+    def __init__(self, cnvs):
+        super().__init__(cnvs)
+        self._shapes = model.ListVA()
+        self._is_drawn = False
+
+    def add_shape(self, shape: EditableShape):
+        """Add a shape to the group."""
+        if shape.cnvs == self.cnvs and shape not in self._shapes.value:
+            self._shapes.value.append(shape)
+            shape.parent_group._set_value(self, force_write=True)
+
+    def remove_shape(self, shape: EditableShape):
+        """Remove a shape from the group."""
+        if shape.cnvs == self.cnvs and shape in self._shapes.value:
+            self._shapes.value.remove(shape)
+            shape.parent_group._set_value(None, force_write=True)
+
+    def get_bounding_box(self) -> Tuple[float, float, float, float]:
+        """Get the shape's bounding box."""
+        boxes = [s.get_bounding_box() for s in self._shapes.value]
+        xmins, ymins, xmaxs, ymaxs = zip(*boxes)
+        return (min(xmins), min(ymins), max(xmaxs), max(ymaxs))
+
+    def check_point_proximity(self, v_point: Tuple[float, float]) -> bool:
+        """
+        Determine if the view point is in the proximity of the shape.
+
+        :param: v_point: The point in view coordinates.
+        :returns: whether the view point is in proximity of the shape.
+        """
+        for shape in self._shapes.value:
+            if shape.check_point_proximity(v_point):
+                return True
+        return False
+
+    def copy(self):
+        """
+        :returns: (EditableShapeGroup) a new instance of EditableShapeGroup with necessary copied attributes.
+
+        """
+        new_shape = EditableShapeGroup(self.cnvs)
+        for shape in self._shapes.value:
+            new_shape._shapes.value.append(shape.copy())
+        return new_shape
+
+    def move_to(self, pos: Union[Tuple[float, float], Vec]):
+        """Move the shape's center to a physical position."""
+        for shape in self._shapes.value:
+            shape.move_to(pos)
+
+    def get_state(self):
+        """Get the current state of the shape."""
+        return [shape.get_state() for shape in self._shapes.value]
+
+    def restore_state(self, state):
+        """Restore the shape to a given state."""
+        for shape, shape_state in zip(self._shapes.value, state):
+            shape.restore_state(shape_state)
+
+    def to_dict(self):
+        raise NotImplementedError(
+            "to_dict() method not implemented for EditableShapeGroup class."
+        )
+
+    @staticmethod
+    def from_dict(shape: dict, tab_data):
+        raise NotImplementedError(
+            "from_dict() method not implemented for EditableShapeGroup class."
+        )
+
+    def set_rotation(self, target_rotation: float):
+        """Set the rotation of the shape to a specific angle."""
+        for shape in self._shapes.value:
+            shape.set_rotation(target_rotation)
+
+    def reset(self):
+        """Reset the shape creation."""
+        for shape in self._shapes.value:
+            shape.reset()
+
+    def draw(self, ctx, shift=(0, 0), scale=1.0):
+        """Draw the tool to given context."""
+        if not self._is_drawn:
+            xmin, ymin, xmax, ymax = self.get_bounding_box()
+
+
 class ShapesOverlay(WorldOverlay):
     """
     Overlay that allows for the selection and deletion of a shape in physical coordinates.
@@ -202,6 +291,7 @@ class ShapesOverlay(WorldOverlay):
         # True if latest action created a shape (for undo and redo)
         self._is_new_shape = False
         self._selected_shape = None
+        self._selection = []
         if shape_to_copy_va is None:
             self._shape_to_copy = model.VigilantAttribute(None, readonly=True)
         else:
@@ -217,7 +307,7 @@ class ShapesOverlay(WorldOverlay):
         self._redo_stack: Deque[ShapeState] = deque(maxlen=UNDO_STACK_DEPTH)
         self._undo_action = False
         self._redo_action = False
-        self.is_ctrl_down = False
+        self.is_shift_down = False
         if tool:
             self.tool = tool
             if tool_va:
@@ -230,12 +320,16 @@ class ShapesOverlay(WorldOverlay):
     def remove_shape(self, shape):
         """Remove the shape and update canvas."""
         if shape.cnvs == self.cnvs and shape in self._shapes.value:
+            if shape.parent_group.value:
+                shape.parent_group.value.remove_shape(shape)
             self._shapes.value.remove(shape)
             self.cnvs.request_drawing_update()
 
     def add_shape(self, shape):
         """Add the shape and update canvas."""
         if shape.cnvs == self.cnvs and shape not in self._shapes.value:
+            if shape.parent_group.value:
+                shape.parent_group.value.add_shape(shape)
             self._shapes.value.append(shape)
             self.cnvs.request_drawing_update()
 
@@ -257,9 +351,12 @@ class ShapesOverlay(WorldOverlay):
 
     def _deselect_shapes(self):
         """Deselect shapes except the selected shape."""
+        self._selection.append(self._selected_shape)
         for shape in self._shapes.value:
             if shape.selected.value and shape != self._selected_shape:
                 shape.selected.value = False
+                if shape in self._selection:
+                    self._selection.remove(shape)
 
     def _on_tool(self, selected_tool):
         """Update the overlay when it's active and tools change."""
@@ -350,8 +447,9 @@ class ShapesOverlay(WorldOverlay):
         # If the ShapesOverlay is active it is still possible to drag the canvas by additionally pressing Ctrl.
         # Both canvas dragging and shape creation make use of left click and motion, therefore additional Ctrl
         # key check is used to aid both functionalities.
+        self.is_shift_down = evt.ShiftDown()
         self.is_ctrl_down = evt.ControlDown()
-        if not self.is_ctrl_down:
+        if not self.is_shift_down:
             self._is_new_shape = False
             # If shape creation has not finished
             if self._selected_shape and not self._selected_shape.is_created.value:
@@ -369,6 +467,17 @@ class ShapesOverlay(WorldOverlay):
                 if self._selected_shape is None:
                     self._selected_shape = self._create_new_shape()
                     self._is_new_shape = True
+                elif self.is_ctrl_down:
+                    # If the shape is already selected, unselect it
+                    if self._selected_shape in self._selection:
+                        self._selection.remove(self._selected_shape)
+                        self._selected_shape.selected.value = False
+                    # If the shape is not selected, select it
+                    else:
+                        self._selection.append(self._selected_shape)
+                        self._selected_shape.selected.value = True
+                    self.cnvs.update_drawing()
+                    return
                 self._selected_shape.on_left_down(evt)
                 self._deselect_shapes()
         WorldOverlay.on_left_down(self, evt)
@@ -391,7 +500,12 @@ class ShapesOverlay(WorldOverlay):
                 self._undo_action = True
                 self.undo()
         elif self._selected_shape:
-            if evt.GetKeyCode() == wx.WXK_DELETE:
+            if evt.GetKeyCode() == wx.WXK_CONTROL_G:
+                if evt.ShiftDown():
+                    logging.error("Ungrouping.")
+                else:
+                    logging.error("Grouping.")
+            elif evt.GetKeyCode() == wx.WXK_DELETE:
                 state = self._selected_shape.get_state()
                 if state:
                     shape_state = ShapeState(self._selected_shape, state, Action.DELETE)
@@ -426,11 +540,11 @@ class ShapesOverlay(WorldOverlay):
         if not self.active.value:
             return super().on_left_up(evt)
 
-        # Use the ControlDown flag from on_left_down event
+        # Use the ShiftDown flag from on_left_down event
         # any shape creation starts on left down event and subsequently continues to other events
         # by using the flag from on_left_down event avoid a corner case where the Ctrl key might
         # be released for any subsequent events
-        if self._selected_shape and not self.is_ctrl_down:
+        if self._selected_shape and not self.is_shift_down and not self.is_ctrl_down:
             self._selected_shape.on_left_up(evt)
             state = self._selected_shape.get_state()
             if state:
@@ -471,11 +585,11 @@ class ShapesOverlay(WorldOverlay):
         if not self.active.value:
             return super().on_motion(evt)
 
-        # Use the ControlDown flag from on_left_down event
+        # Use the ShiftDown flag from on_left_down event
         # any shape creation starts on left down event and subsequently continues to other events
         # by using the flag from on_left_down event avoid a corner case where the Ctrl key might
         # be released for any subsequent events
-        if self._selected_shape and not self.is_ctrl_down:
+        if self._selected_shape and not self.is_shift_down and not self.is_ctrl_down:
             self._selected_shape.on_motion(evt)
             if self._shape_to_copy.value:
                 self.cnvs.set_default_cursor(wx.CURSOR_BULLSEYE)

@@ -41,7 +41,6 @@ from odemis.gui.comp.overlay.base import (
 from odemis.gui.comp.overlay.shapes import EditableShape
 from odemis.util.conversion import frgba_to_hex, hex_to_frgba
 
-
 class RectangleState:
     def __init__(self, rectangle_overlay) -> None:
         self.p_point1 = rectangle_overlay.p_point1

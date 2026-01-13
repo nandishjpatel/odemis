@@ -225,6 +225,18 @@ TOOLS = {
             "btn_expand",
             "Expand the view"
         ),
+    model.TOOL_GROUP:
+        ModeTool(
+            "btn_group",
+            model.TOOL_GROUP,
+            model.TOOL_NONE,
+            "Group shapes"
+        ),
+    model.TOOL_UNGROUP:
+        ToggleTool(
+            "btn_ungroup",
+            "Ungroup shapes"
+        ),
 }
 
 

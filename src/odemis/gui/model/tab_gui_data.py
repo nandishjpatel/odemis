@@ -32,7 +32,6 @@ import odemis.acq.stream as acqstream
 from odemis import model
 from odemis.acq.feature import CryoFeature, get_feature_position_at_posture, Target, TargetType
 from odemis.acq.move import FM_IMAGING, SEM_IMAGING
-from odemis.acq.stream import StaticFluoStream
 from odemis.gui import conf
 from odemis.gui.conf import get_general_conf
 from odemis.gui.cont.fastem_project_tree import FastEMTreeNode, NodeType

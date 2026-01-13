@@ -66,6 +66,8 @@ TOOL_EXPAND = 18  # Expand the view layout
 TOOL_FIDUCIAL = 19  # Create new fiducial or move selected one
 TOOL_REGION_OF_INTEREST = 20  # Select the region of interest or move selected one
 TOOL_SURFACE_FIDUCIAL = 21  # Create new surface fiducial or move selected one
+TOOL_GROUP = 22  # Group shapes
+TOOL_UNGROUP = 23  # Ungroup shapes
 
 ALL_TOOL_MODES = {
     TOOL_NONE,

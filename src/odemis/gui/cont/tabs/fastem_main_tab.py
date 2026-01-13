@@ -47,6 +47,8 @@ from odemis.gui.model import (
     TOOL_RECTANGLE,
     TOOL_RULER,
     TOOL_VIEW_LAYOUT,
+    TOOL_GROUP,
+    TOOL_UNGROUP,
     VIEW_LAYOUT_DYNAMIC,
     VIEW_LAYOUT_ONE,
     FastEMMainTabGUIData,
@@ -93,6 +95,8 @@ class FastEMMainTab(Tab):
             TOOL_VIEW_LAYOUT,
             TOOL_CURSOR,
             TOOL_EXPAND,
+            TOOL_GROUP,
+            TOOL_UNGROUP,
         }
         super(FastEMMainTab, self).__init__(name, button, panel, main_frame, tab_data)
         # Flag to indicate the tab has been fully initialized or not. Some initialisation
@@ -188,9 +192,12 @@ class FastEMMainTab(Tab):
         self.tb.add_tool(TOOL_RECTANGLE, self.tab_data_model.tool)
         self.tb.add_tool(TOOL_ELLIPSE, self.tab_data_model.tool)
         self.tb.add_tool(TOOL_POLYGON, self.tab_data_model.tool)
+        self.tb.add_tool(TOOL_GROUP, self.tab_data_model.tool)
+        self.tb.add_tool(TOOL_UNGROUP, self._on_tool_ungroup)
         self.tb.add_tool(TOOL_VIEW_LAYOUT, self._on_tool_view_layout)
         self.view_layout_btn = self.tb.get_button(TOOL_VIEW_LAYOUT)
         self.cursor_btn = self.tb.get_button(TOOL_CURSOR)
+        self.ungroup_btn = self.tb.get_button(TOOL_UNGROUP)
         # Subscriptions
         self.tab_data_model.main.is_acquiring.subscribe(self._on_is_acquiring)
         self.tab_data_model.main.current_sample.subscribe(self._on_current_sample)
@@ -244,7 +251,7 @@ class FastEMMainTab(Tab):
             logging.info("Requested to expand the view but not able to")
 
     def _on_tool(self, tool):
-        if tool in (TOOL_ELLIPSE, TOOL_RECTANGLE, TOOL_POLYGON, TOOL_RULER):
+        if tool in (TOOL_ELLIPSE, TOOL_RECTANGLE, TOOL_POLYGON, TOOL_RULER, TOOL_GROUP):
             self.cursor_btn.SetToggle(False)
         else:
             self.cursor_btn.SetToggle(True)
@@ -255,6 +262,9 @@ class FastEMMainTab(Tab):
             self.tab_data_model.tool.value = TOOL_NONE
         else:
             self.cursor_btn.SetToggle(True)
+
+    def _on_tool_ungroup(self, _):
+        logging.debug("Ungrouping shapes")
 
     def on_pnl_vp_grid_project_manager_size(self, _):
         """Handle the wx.EVT_SIZE event for pnl_user_settings"""
