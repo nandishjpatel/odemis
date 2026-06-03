@@ -846,19 +846,19 @@ class TiledAcquisitionTaskTestCase(unittest.TestCase):
         region = [(0.0, 0.0), (14.0e-3, 0.0), (14.0e-3, 13.0e-3), (0.0, 13.0e-3)]
         tiled_acq_task = TiledAcquisitionTask(streams=self.streams, stage=mock.Mock(spec=model.Actuator), region=region, overlap=0.0145)
         # Exclude exterior coords closing point which is the same as the first
-        self.assertEqual(list(tiled_acq_task._polygon.exterior.coords[:-1]), region)
+        self.assertEqual(list(tiled_acq_task.ctrl._polygon.exterior.coords[:-1]), region)
 
         # Region is a bounding box
         region = (0.0, 0.0, 14.0e-3, 13.0e-3)
         tiled_acq_task = TiledAcquisitionTask(streams=self.streams, stage=mock.Mock(spec=model.Actuator), region=region, overlap=0.0145)
         # Exclude exterior coords closing point which is the same as the first
-        self.assertEqual(list(tiled_acq_task._polygon.exterior.coords[:-1]), [(0.0, 0.0), (14.0e-3, 0.0), (14.0e-3, 13.0e-3), (0.0, 13.0e-3)])
+        self.assertEqual(list(tiled_acq_task.ctrl._polygon.exterior.coords[:-1]), [(0.0, 0.0), (14.0e-3, 0.0), (14.0e-3, 13.0e-3), (0.0, 13.0e-3)])
 
         # Region is a rotated rectangle
         rotated_rectangle = self.create_rectangle(0.0, 0.0, 14.0e-3, 13.0e-3, angle=45)
         tiled_acq_task = TiledAcquisitionTask(streams=self.streams, stage=mock.Mock(spec=model.Actuator), region=rotated_rectangle, overlap=0.1)
         # Exclude exterior coords closing point which is the same as the first
-        self.assertEqual(list(tiled_acq_task._polygon.exterior.coords[:-1]), rotated_rectangle)
+        self.assertEqual(list(tiled_acq_task.ctrl._polygon.exterior.coords[:-1]), rotated_rectangle)
 
         # Region is not a valid polygon or bounding box
         region = [(0.1, 0.1), (0.1, 0.2), (0.2, 0.2), (0.2, 0.1, 0.1)]
@@ -870,22 +870,22 @@ class TiledAcquisitionTaskTestCase(unittest.TestCase):
         # Region is a bounding box
         region = (0.0, 0.0, 14.0e-3, 13.0e-3)
         tiled_acq_task = TiledAcquisitionTask(streams=self.streams, stage=mock.Mock(spec=model.Actuator), region=region, overlap=0.0145)
-        self.assertEqual(tiled_acq_task._number_of_tiles, 56)
+        self.assertEqual(tiled_acq_task.ctrl._number_of_tiles, 56)
 
         # Region is a bounding box with higher overlap
         region = (0.0, 0.0, 14.0e-3, 13.0e-3)
         tiled_acq_task = TiledAcquisitionTask(streams=self.streams, stage=mock.Mock(spec=model.Actuator), region=region, overlap=0.5)
-        self.assertGreater(tiled_acq_task._number_of_tiles, 56)  # Should result in more tiles than the standard case
+        self.assertGreater(tiled_acq_task.ctrl._number_of_tiles, 56)  # Should result in more tiles than the standard case
 
         # Region is a rotated rectangle
         rotated_rectangle = self.create_rectangle(0.0, 0.0, 14.0e-3, 13.0e-3, angle=45)
         tiled_acq_task = TiledAcquisitionTask(streams=self.streams, stage=mock.Mock(spec=model.Actuator), region=rotated_rectangle, overlap=0.01)
-        self.assertGreater(tiled_acq_task._number_of_tiles, 56)  # Should result in more tiles than the standard case
+        self.assertGreater(tiled_acq_task.ctrl._number_of_tiles, 56)  # Should result in more tiles than the standard case
 
         # Region is a very small bounding box (edge case)
         region = (0.0, 0.0, 1e-6, 1e-6)
         tiled_acq_task = TiledAcquisitionTask(streams=self.streams, stage=mock.Mock(spec=model.Actuator), region=region, overlap=0.1)
-        self.assertEqual(tiled_acq_task._number_of_tiles, 1)
+        self.assertEqual(tiled_acq_task.ctrl._number_of_tiles, 1)
 
     def test_sort_tile_indices_zigzag(self):
         # Define expected zigzag order
@@ -900,21 +900,21 @@ class TiledAcquisitionTaskTestCase(unittest.TestCase):
 
         # Apply zigzag sorting
         tiled_acq_task = TiledAcquisitionTask(streams=self.streams, stage=mock.Mock(spec=model.Actuator), region=(0, 0, 1, 1), overlap=0.1)
-        sorted_indices = tiled_acq_task._sort_tile_indices_zigzag(tile_indices)
+        sorted_indices = tiled_acq_task.ctrl._sort_tile_indices_zigzag(tile_indices)
         self.assertListEqual(sorted_indices, zigzag_tile_indices)
 
         # Single row (edge case)
         tile_indices = [(col, 0) for col in range(5)]
-        sorted_indices = tiled_acq_task._sort_tile_indices_zigzag(tile_indices)
+        sorted_indices = tiled_acq_task.ctrl._sort_tile_indices_zigzag(tile_indices)
         self.assertListEqual(sorted_indices, tile_indices)
 
         # Single column (edge case)
         tile_indices = [(0, row) for row in range(5)]
-        sorted_indices = tiled_acq_task._sort_tile_indices_zigzag(tile_indices)
+        sorted_indices = tiled_acq_task.ctrl._sort_tile_indices_zigzag(tile_indices)
         self.assertListEqual(sorted_indices, tile_indices)
 
         # Empty tile indices
-        sorted_indices = tiled_acq_task._sort_tile_indices_zigzag([])
+        sorted_indices = tiled_acq_task.ctrl._sort_tile_indices_zigzag([])
         self.assertListEqual(sorted_indices, [])
 
 
